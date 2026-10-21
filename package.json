@@ -1,0 +1,108 @@
+{
+    "name":  "quizbuilder-pro-desktop",
+    "productName":  "QuizBuilder Pro",
+    "description":  "QuizBuilder Pro desktop app - quizzes are saved as .quiz files on your computer.",
+    "author":  "Will Findlay",
+    "private":  true,
+    "version":  "2.0.0",
+    "type":  "module",
+    "main":  "electron/main.cjs",
+    "scripts":  {
+                    "dev":  "vite --port=3000 --host=0.0.0.0",
+                    "build":  "vite build",
+                    "lint":  "tsc --noEmit",
+                    "electron":  "npm run build \u0026\u0026 electron .",
+                    "dist":  "npm run build \u0026\u0026 electron-builder --win",
+                    "dist:mac":  "npm run build \u0026\u0026 electron-builder --mac --publish never",
+                    "dist:win":  "npm run build \u0026\u0026 electron-builder --win"
+                },
+    "devDependencies":  {
+                            "@dnd-kit/core":  "^6.3.1",
+                            "@dnd-kit/sortable":  "^10.0.0",
+                            "@dnd-kit/utilities":  "^3.2.2",
+                            "@hello-pangea/dnd":  "^18.0.1",
+                            "@tailwindcss/typography":  "^0.5.19",
+                            "@tailwindcss/vite":  "^4.1.14",
+                            "@types/node":  "^22.14.0",
+                            "@types/papaparse":  "^5.5.2",
+                            "@types/uuid":  "^10.0.0",
+                            "@vitejs/plugin-react":  "^5.0.4",
+                            "autoprefixer":  "^10.4.21",
+                            "docx":  "^9.6.1",
+                            "electron":  "^38.0.0",
+                            "electron-builder":  "^26.0.0",
+                            "file-saver":  "^2.0.5",
+                            "jspdf":  "^4.2.1",
+                            "jspdf-autotable":  "^5.0.7",
+                            "jszip":  "^3.10.1",
+                            "lucide-react":  "^0.546.0",
+                            "motion":  "^12.23.24",
+                            "papaparse":  "^5.5.3",
+                            "react":  "^19.0.0",
+                            "react-dom":  "^19.0.0",
+                            "react-dropzone":  "^15.0.0",
+                            "react-markdown":  "^10.1.0",
+                            "remark-breaks":  "^4.0.0",
+                            "remark-gfm":  "^4.0.1",
+                            "tailwindcss":  "^4.1.14",
+                            "typescript":  "~5.8.2",
+                            "uuid":  "^13.0.0",
+                            "vite":  "^6.2.0",
+                            "xlsx":  "^0.18.5"
+                        },
+    "build":  {
+                  "appId":  "com.quizbuilder.pro.desktop",
+                  "productName":  "QuizBuilder Pro",
+                  "directories":  {
+                                      "buildResources":  "assets",
+                                      "output":  "release"
+                                  },
+                  "files":  [
+                                "electron/**/*",
+                                "dist/**/*",
+                                "package.json"
+                            ],
+                  "win":  {
+                              "target":  [
+                                             "nsis",
+                                             "portable"
+                                         ],
+                              "icon":  "assets/icon.png"
+                          },
+                  "nsis":  {
+                               "oneClick":  false,
+                               "allowToChangeInstallationDirectory":  true,
+                               "perMachine":  false,
+                               "createDesktopShortcut":  true,
+                               "artifactName":  "QuizBuilderPro-Setup-${version}.${ext}"
+                           },
+                  "fileAssociations":  [
+                                           {
+                                               "ext":  "quiz",
+                                               "icon":  "quiz-file.ico",
+                                               "name":  "QuizBuilder Quiz",
+                                               "description":  "QuizBuilder Pro quiz file",
+                                               "role":  "Editor"
+                                           }
+                                       ],
+                  "portable":  {
+                                   "artifactName":  "QuizBuilderPro-Portable-${version}.${ext}"
+                               },
+                  "mac":  {
+                              "target":  [
+                                             {
+                                                 "target":  "dmg",
+                                                 "arch":  [
+                                                              "universal"
+                                                          ]
+                                             }
+                                         ],
+                              "category":  "public.app-category.education",
+                              "icon":  "assets/icon.png",
+                              "identity":  null
+                          },
+                  "dmg":  {
+                              "artifactName":  "QuizBuilderPro-${version}-mac.${ext}"
+                          }
+              }
+}
