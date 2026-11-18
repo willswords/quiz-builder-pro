@@ -2392,7 +2392,7 @@ You can use the arrow keys on your keyboard to navigate between questions:
           >
             <FileText size={14} /> Download User Manual (Word)
           </button>
-          <p className="text-xs text-slate-400">QuizBuilder Pro v2.0 (Desktop)</p>
+          <p className="text-xs text-slate-400">QuizBuilder Pro v2.1 (Desktop)</p>
           <p className="text-xs text-slate-400">A Google AI Studio app by <a href="https://willfindlayportfolio.wordpress.com/" target="_blank">Will Findlay</a></p>
         </div>
       </aside>

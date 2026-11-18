@@ -4,7 +4,7 @@
     "description":  "QuizBuilder Pro desktop app - quizzes are saved as .quiz files on your computer.",
     "author":  "Will Findlay",
     "private":  true,
-    "version":  "2.0.0",
+    "version":  "2.1.0",
     "type":  "module",
     "main":  "electron/main.cjs",
     "scripts":  {

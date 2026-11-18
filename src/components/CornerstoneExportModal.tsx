@@ -15,8 +15,12 @@ import {
   RECURRENCE_REQUEST,
   REVIEW_LEVELS,
   ReviewLevel,
+  TEST_INSTRUCTIONS_MAX,
   buildCornerstoneFilename,
+  defaultTestInstructions,
   formatTrainingHours,
+  getOpeningInstructions,
+  getSections,
   generateCornerstoneWorkbook,
   getExportableQuestions,
   parseTrainingHours,
@@ -27,7 +31,7 @@ import {
 const SETTINGS_KEY = 'cornerstoneExportSettings';
 const TEST_NUMBERS_KEY = 'cornerstoneTestNumbers';
 
-type SavedSettings = Omit<CornerstoneExportOptions, 'testNumber'>;
+type SavedSettings = typeof CORNERSTONE_DEFAULTS;
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -106,6 +110,9 @@ export function CornerstoneExportModal({ quiz, onClose, onExported, onError }: P
   const [allowReviewEveryAttempt, setAllowReviewEveryAttempt] = useState(saved.allowReviewEveryAttempt);
   const [parentCategoryId, setParentCategoryId] = useState(saved.parentCategoryId);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  // null = not edited, so the text follows the default (opening Information Block, or generated text).
+  const [editedInstructions, setEditedInstructions] = useState<string | null>(null);
+  const hasOpeningBlock = useMemo(() => getOpeningInstructions(quiz) !== null, [quiz]);
 
   const sortedSubjects = useMemo(
     () => [...CORNERSTONE_SUBJECTS].sort((a, b) => a.name.localeCompare(b.name)),
@@ -114,6 +121,7 @@ export function CornerstoneExportModal({ quiz, onClose, onExported, onError }: P
   const sortedProviders = useMemo(() => [...CORNERSTONE_PROVIDERS].sort((a, b) => a.localeCompare(b)), []);
   const quizErrors = useMemo(() => validateForCornerstone(quiz), [quiz]);
   const questionCount = getExportableQuestions(quiz).length;
+  const sections = useMemo(() => getSections(quiz), [quiz]);
 
   // "Approve based on original approval" only applies when one of the other two is checked.
   const approvalAvailable = recurAssign || recurRequest;
@@ -126,6 +134,9 @@ export function CornerstoneExportModal({ quiz, onClose, onExported, onError }: P
   const attemptsNum = attempts.trim() === '' ? null : Number(attempts);
   const hoursNum = hours.trim() === '' ? 0 : Number(hours);
   const minutesNum = minutes.trim() === '' ? 0 : Number(minutes);
+
+  const instructions =
+    editedInstructions ?? defaultTestInstructions(quiz, attemptsNum !== null && attemptsNum >= 1 ? attemptsNum : null);
 
   const fieldErrors: string[] = [];
   if (!/^\d+$/.test(testNumber.trim()) || testNum < 1) fieldErrors.push('Enter a whole-number Test Number (1 or greater).');
@@ -153,6 +164,7 @@ export function CornerstoneExportModal({ quiz, onClose, onExported, onError }: P
     allowReviewUser,
     allowReviewEveryAttempt,
     parentCategoryId: parentCategoryId.trim(),
+    testInstructions: instructions,
   };
   if (fieldErrors.length === 0) fieldErrors.push(...validateCornerstoneOptions(quiz, opts));
 
@@ -164,7 +176,7 @@ export function CornerstoneExportModal({ quiz, onClose, onExported, onError }: P
     try {
       const wb = generateCornerstoneWorkbook(quiz, opts);
       XLSX.writeFile(wb, fileName.replace(/[\\/:*?"<>|]/g, '_'));
-      const { testNumber: _n, ...rest } = opts;
+      const { testNumber: _n, testInstructions: _i, ...rest } = opts;
       writeJson(SETTINGS_KEY, rest);
       writeJson(TEST_NUMBERS_KEY, { ...savedNumbers, [quiz.id]: testNum });
       onExported(`Exported ${questionCount} question${questionCount === 1 ? '' : 's'} for Cornerstone Edge Import.`);
@@ -221,7 +233,17 @@ export function CornerstoneExportModal({ quiz, onClose, onExported, onError }: P
 
           <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs text-slate-600 space-y-1">
             <div><strong>Topic:</strong> {quiz.title || '(untitled)'}</div>
-            <div><strong>Questions:</strong> {questionCount} &nbsp; <strong>Passing score:</strong> {quiz.passingScore}%</div>
+            <div>
+              <strong>Questions:</strong> {questionCount} &nbsp; <strong>Sections:</strong> {sections.length} &nbsp;{' '}
+              <strong>Passing score:</strong> {quiz.passingScore}%
+            </div>
+            {sections.some(s => s.name) && (
+              <ol className="list-decimal list-inside text-slate-500">
+                {sections.map(s => (
+                  <li key={s.number}>{s.name || '(unnamed)'} – {s.questions.length} question{s.questions.length === 1 ? '' : 's'}</li>
+                ))}
+              </ol>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -301,6 +323,38 @@ export function CornerstoneExportModal({ quiz, onClose, onExported, onError }: P
             </div>
             <p className={hintClass}>Used for reporting. Exported as {opts.trainingHours}.</p>
           </fieldset>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label htmlFor="cs-instructions" className={labelClass}>Test Instructions</label>
+              {editedInstructions !== null && (
+                <button
+                  type="button"
+                  onClick={() => setEditedInstructions(null)}
+                  className="text-xs font-bold text-indigo-600 hover:text-indigo-700"
+                >
+                  Reset to default
+                </button>
+              )}
+            </div>
+            <textarea
+              id="cs-instructions"
+              rows={6}
+              className={`${inputClass} text-sm resize-y`}
+              value={instructions}
+              onChange={e => setEditedInstructions(e.target.value)}
+            />
+            <div className="flex justify-between gap-4">
+              <p className={hintClass}>
+                {hasOpeningBlock
+                  ? 'Default comes from the quiz\'s opening Information Block.'
+                  : 'The quiz has no opening Information Block, so default text was generated.'}
+              </p>
+              <p className={`text-[10px] shrink-0 ${instructions.length > TEST_INSTRUCTIONS_MAX ? 'text-red-600 font-bold' : 'text-slate-400'}`}>
+                {instructions.length}/{TEST_INSTRUCTIONS_MAX}
+              </p>
+            </div>
+          </div>
 
           <fieldset className="space-y-2">
             <legend className={labelClass}>Recurrence</legend>

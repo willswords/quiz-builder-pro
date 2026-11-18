@@ -1,4 +1,9 @@
 import * as XLSX from 'xlsx';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import { Quiz, Question } from '../types';
 import { CORNERSTONE_SUBJECTS } from './cornerstoneSubjects';
 
@@ -37,9 +42,11 @@ export interface CornerstoneExportOptions {
   allowReviewUser: boolean;
   allowReviewEveryAttempt: boolean;
   parentCategoryId: string; // Question-Category-Worksheet "Parent Category Id"
+  testInstructions: string; // Test-Worksheet "Test Instructions" (plain text, max 2000)
 }
 
-export const CORNERSTONE_DEFAULTS: Omit<CornerstoneExportOptions, 'testNumber'> = {
+// Settings remembered between exports (test number and instructions are per quiz).
+export const CORNERSTONE_DEFAULTS: Omit<CornerstoneExportOptions, 'testNumber' | 'testInstructions'> = {
   vendorProvider: 'Safety & Health',
   providerType: 'ILT',
   subject: 'Safety & Health',
@@ -69,6 +76,100 @@ export function parseTrainingHours(value: string): { hours: number; minutes: num
 
 const yesNo = (b: boolean) => (b ? 'yes' : 'no');
 
+export const TEST_INSTRUCTIONS_MAX = 2000;
+
+/** Plain text from an info block's Markdown: drops heading/emphasis/code markers and keeps link text. */
+export function markdownToPlainText(md: string): string {
+  return md
+    .replace(/\r\n?/g, '\n')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')          // images -> alt text
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')           // links -> link text
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')                // headings
+    .replace(/^\s{0,3}>\s?/gm, '')                     // blockquotes
+    .replace(/^(\s*)[*+]\s+/gm, '$1- ')                // bullets -> "- "
+    .replace(/(\*\*|__)(.+?)\1/g, '$2')                // bold
+    .replace(/(^|[^*\w])[*_]([^*_\n]+)[*_](?=[^*\w]|$)/g, '$1$2') // italics
+    .replace(/~~(.+?)~~/g, '$1')                       // strikethrough
+    .replace(/`([^`]+)`/g, '$1')                       // inline code
+    .split('\n').map(l => l.replace(/\s+$/, '')).join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** Text of the quiz's opening Information Block (the first item, if it's an info block), or null. */
+export function getOpeningInstructions(quiz: Quiz): string | null {
+  const first = quiz.questions[0];
+  if (!first || first.type !== 'info') return null;
+  const text = markdownToPlainText(first.content || '');
+  return text || null;
+}
+
+export const SECTION_NAME_MAX = 2000;
+export const SECTION_DESCRIPTION_MAX = 3500;
+
+/** HTML for a Markdown info block, rendered the same way the quiz player shows it. */
+export function markdownToHtml(md: string): string {
+  if (!md.trim()) return '';
+  return renderToStaticMarkup(createElement(ReactMarkdown, { remarkPlugins: [remarkGfm, remarkBreaks] }, md));
+}
+
+export interface QuizSection {
+  number: number;
+  name: string;        // Information Block title ('' if the section has no block)
+  description: string; // Information Block content as HTML
+  questions: Question[];
+}
+
+/**
+ * Splits the quiz into Cornerstone test sections. The opening Information Block is the Test
+ * Instructions, not a section. Each later Information Block starts a new section (title = Section
+ * Name, content = Section Description) — except one that comes before any question in the current
+ * section (e.g. right after the Instructions block), which names that section instead. If two blocks
+ * are back to back, the first title is kept and the second block's content is added to the description.
+ * Sections without questions (e.g. an Information Block at the very end) are dropped.
+ */
+export function getSections(quiz: Quiz): QuizSection[] {
+  const items = quiz.questions;
+  const start = items[0]?.type === 'info' ? 1 : 0;
+  const drafts: { name: string; markdown: string[]; questions: Question[] }[] = [{ name: '', markdown: [], questions: [] }];
+  for (const item of items.slice(start)) {
+    let current = drafts[drafts.length - 1];
+    if (item.type === 'info') {
+      if (current.questions.length > 0) {
+        current = { name: '', markdown: [], questions: [] };
+        drafts.push(current);
+      }
+      if (!current.name) current.name = clean(item.text);
+      if ((item.content || '').trim()) current.markdown.push(item.content || '');
+    } else {
+      current.questions.push(item);
+    }
+  }
+  return drafts
+    .filter(d => d.questions.length > 0)
+    .map((d, i) => ({
+      number: i + 1,
+      name: d.name,
+      description: markdownToHtml(d.markdown.join('\n\n')),
+      questions: d.questions,
+    }));
+}
+
+/** Generated instructions used when the quiz has no opening Information Block. */
+export function generatedInstructions(quiz: Quiz, attemptsAllowed: number | null): string {
+  const attemptsWord = attemptsAllowed === 1 ? 'attempt' : 'attempts';
+  return attemptsAllowed === null
+    ? `A quiz is required at the end of the curriculum. Workers completing the training must pass the quiz with a minimum of ${quiz.passingScore}%. ` +
+      `There is no limit on the number of attempts. `
+    : `A quiz is required at the end of the curriculum. Workers completing the training must pass the quiz with a minimum of ${quiz.passingScore}% within ${attemptsAllowed} ${attemptsWord}. ` +
+      `If the user does not pass the curriculum within ${attemptsAllowed} ${attemptsWord}, the curriculum will be re-assigned to the worker, allowing the worker to re-watch the training modules before retaking the quiz. `;
+}
+
+/** Default Test Instructions: the opening Information Block, else the generated text. */
+export function defaultTestInstructions(quiz: Quiz, attemptsAllowed: number | null): string {
+  return getOpeningInstructions(quiz) ?? generatedInstructions(quiz, attemptsAllowed);
+}
+
 // Cornerstone supports up to 10 answers. Answer 1-4 sit before "Correct Answer"; Answer 5-10 sit
 // after "Section Number" (the sample template omitted 5 and 6; they're placed before Answer 7).
 export const CORNERSTONE_MAX_ANSWERS = 10;
@@ -94,6 +195,20 @@ export function validateForCornerstone(quiz: Quiz): string[] {
   if (!clean(quiz.title)) errors.push('The quiz needs a title (used as the Cornerstone Topic).');
   const questions = getExportableQuestions(quiz);
   if (questions.length === 0) errors.push('The quiz has no questions to export.');
+  const sections = getSections(quiz);
+  const seenNames = new Set<string>();
+  sections.forEach(s => {
+    const label = s.name ? `Section ${s.number} ("${s.name.slice(0, 40)}")` : `Section ${s.number}`;
+    if (s.name.length > SECTION_NAME_MAX) errors.push(`${label} name is over ${SECTION_NAME_MAX} characters.`);
+    if (s.description.length > SECTION_DESCRIPTION_MAX) {
+      errors.push(`${label} description is ${s.description.length} characters as HTML; Cornerstone allows at most ${SECTION_DESCRIPTION_MAX}.`);
+    }
+    if (s.name) {
+      const key = s.name.toLowerCase();
+      if (seenNames.has(key)) errors.push(`More than one section is named "${s.name}"; Cornerstone needs each section name to be unique.`);
+      seenNames.add(key);
+    }
+  });
   questions.forEach((q, i) => {
     if (q.options.length > CORNERSTONE_MAX_ANSWERS) {
       errors.push(`Question ${i + 1} has ${q.options.length} answers; the Cornerstone template allows at most ${CORNERSTONE_MAX_ANSWERS}.`);
@@ -117,12 +232,8 @@ function deriveFields(quiz: Quiz, opts: CornerstoneExportOptions) {
   const testTitle = `${topic} - Quiz`;
   const refNumber = (i: number) => `${categoryRef}-${pad(opts.testNumber, 3)}-${pad(i, 2)}`;
   const description = clean(quiz.description) === PLACEHOLDER_DESCRIPTION ? '' : clean(quiz.description);
-  const attemptsWord = opts.attemptsAllowed === 1 ? 'attempt' : 'attempts';
-  const instructions = opts.attemptsAllowed === null
-    ? `A quiz is required at the end of the curriculum. Workers completing the training must pass the quiz with a minimum of ${quiz.passingScore}%. ` +
-      `There is no limit on the number of attempts. `
-    : `A quiz is required at the end of the curriculum. Workers completing the training must pass the quiz with a minimum of ${quiz.passingScore}% within ${opts.attemptsAllowed} ${attemptsWord}. ` +
-      `If the user does not pass the curriculum within ${opts.attemptsAllowed} ${attemptsWord}, the curriculum will be re-assigned to the worker, allowing the worker to re-watch the training modules before retaking the quiz. `;
+  // Strip control characters but keep line breaks (and the text exactly as entered otherwise).
+  const instructions = (opts.testInstructions || '').replace(/\r\n?/g, '\n').replace(/[\x00-\x09\x0B-\x1F\x7F]/g, '');
   return { topic, categoryRef, testId, testTitle, refNumber, description, instructions };
 }
 
@@ -138,7 +249,7 @@ export function validateCornerstoneOptions(quiz: Quiz, opts: CornerstoneExportOp
   maxLen('Question Reference Number', f.refNumber(0), 50);
   maxLen('Vendor/Provider', opts.vendorProvider, 100);
   maxLen('Test Description', f.description, 5000);
-  maxLen('Test Instructions', f.instructions, 2000);
+  maxLen('Test Instructions', f.instructions, TEST_INSTRUCTIONS_MAX);
   if (quiz.passingScore < 0 || quiz.passingScore > 100) errors.push('Passing Score must be between 0 and 100.');
   if (opts.attemptsAllowed !== null && opts.attemptsAllowed > 9999) errors.push('Attempts Allowed can be at most 9999.');
   if (!VALID_RECURRENCE.includes(opts.recurrence)) {
@@ -185,10 +296,13 @@ export function generateCornerstoneWorkbook(quiz: Quiz, opts: CornerstoneExportO
     'Test', 'Category Ref', 'Question Reference Number', 'Question Type', 'Question Text', 'Information Content',
     'Answer Explanation', 'Answer 1', 'Answer 2', 'Answer 3', 'Answer 4', 'Correct Answer', 'Default Language',
     'Active', 'Randomize Answer Choices', '# of Answer Choices', 'All of the Above', 'None of the Above', 'Author',
-    'Test ID', 'Order Number', 'Section Number', 'Answer 5', 'Answer 6', 'Answer 7', 'Answer 8', 'Answer 9',
-    'Answer 10', 'Image Filename', 'Answer Coordinates', 'Apply partial scoring',
+    'Test ID', 'Order Number', 'Section Number', 'Section Name', 'Section Description', 'Answer 5', 'Answer 6',
+    'Answer 7', 'Answer 8', 'Answer 9', 'Answer 10', 'Image Filename', 'Answer Coordinates', 'Apply partial scoring',
   ];
+  const sectionOf = new Map<Question, QuizSection>();
+  getSections(quiz).forEach(s => s.questions.forEach(q => sectionOf.set(q, s)));
   const mappingRows = questions.map((q, i) => {
+    const section = sectionOf.get(q)!;
     const a = Array.from({ length: CORNERSTONE_MAX_ANSWERS }, (_, j) => clean(q.options[j]?.text));
     const correct = q.options
       .map((o, j) => (o.isCorrect ? j + 1 : null))
@@ -198,11 +312,12 @@ export function generateCornerstoneWorkbook(quiz: Quiz, opts: CornerstoneExportO
     return [
       topic, categoryRef, refNumber(i), type, clean(q.text), '', '',
       a[0], a[1], a[2], a[3], correctCell, '', 'yes', 'no', '', '', '', opts.authorId,
-      testId, i + 1, 1, a[4], a[5], a[6], a[7], a[8], a[9], '', '', '',
+      testId, i + 1, section.number, section.name, section.description,
+      a[4], a[5], a[6], a[7], a[8], a[9], '', '', '',
     ];
   });
   const mappingSheet = toSheet([mappingHeader, ...mappingRows]);
-  mappingSheet['!cols'] = [30, 28, 32, 32, 70, 20, 20, 40, 40, 40, 40, 14, 16, 8, 24, 18, 16, 18, 10, 40, 12, 14, 40, 40, 40, 40, 40, 40, 16, 18, 20].map(wch => ({ wch }));
+  mappingSheet['!cols'] = [30, 28, 32, 32, 70, 20, 20, 40, 40, 40, 40, 14, 16, 8, 24, 18, 16, 18, 10, 40, 12, 14, 30, 60, 40, 40, 40, 40, 40, 40, 16, 18, 20].map(wch => ({ wch }));
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, testSheet, 'Test-Worksheet');
