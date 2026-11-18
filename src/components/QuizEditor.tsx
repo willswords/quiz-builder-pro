@@ -36,6 +36,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import QuizPlayer from './QuizPlayer';
 import { MediaLibrary } from './MediaLibrary';
+import { CornerstoneExportModal } from './CornerstoneExportModal';
 import type { RecentQuiz } from '../services/quizService';
 
 const DEFAULT_VALUES = [
@@ -95,6 +96,7 @@ You can use the arrow keys on your keyboard to navigate between questions:
   const [isResizing, setIsResizing] = useState(false);
   const [newlyAddedOptionId, setNewlyAddedOptionId] = useState<string | null>(null);
   const [isBulkPasteOpen, setIsBulkPasteOpen] = useState(false);
+  const [isCornerstoneExportOpen, setIsCornerstoneExportOpen] = useState(false);
   const [bulkPasteText, setBulkPasteText] = useState('');
   const bulkPasteRef = useRef<HTMLTextAreaElement>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -2328,6 +2330,21 @@ You can use the arrow keys on your keyboard to navigate between questions:
         </div>
 
         <div className="pt-6 border-t border-slate-100 space-y-4">
+          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Cornerstone Export</h3>
+          <button
+            onClick={() => { if (checkValidation()) setIsCornerstoneExportOpen(true); }}
+            disabled={quiz.questions.filter(q => q.type !== 'info').length === 0}
+            className="w-full flex items-center justify-between p-4 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-xl font-bold transition-all shadow-sm disabled:opacity-50"
+          >
+            <span>Export Cornerstone XLSX</span>
+            <FileSpreadsheet size={20} />
+          </button>
+          <p className="text-[10px] text-slate-400 text-center">
+            Test, category, and question tabs for Cornerstone Edge Import.
+          </p>
+        </div>
+
+        <div className="pt-6 border-t border-slate-100 space-y-4">
           <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">SCORM 2004 Package</h3>
           
           <label className="w-full flex items-center justify-between p-4 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl font-bold transition-all shadow-sm cursor-pointer">
@@ -2571,6 +2588,18 @@ You can use the arrow keys on your keyboard to navigate between questions:
               </div>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Cornerstone Export Modal */}
+      <AnimatePresence>
+        {isCornerstoneExportOpen && (
+          <CornerstoneExportModal
+            quiz={quiz}
+            onClose={() => setIsCornerstoneExportOpen(false)}
+            onExported={msg => showToast(msg, 'success')}
+            onError={msg => showToast(msg, 'error')}
+          />
         )}
       </AnimatePresence>
 
